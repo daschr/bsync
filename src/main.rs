@@ -128,10 +128,6 @@ fn receiver(bsync_name: &str, file: &str) {
 
     let mut hashes_per_iteration: u64 = HASHES_PER_ITERATION;
 
-    // prepare get block command
-    let mut get_block_cmd = [0u8; 9];
-    get_block_cmd[0] = GET_BLOCK;
-
     let mut local_blockhash = [0u8; 32];
     let mut remote_blockhash = [0u8; 32];
 
