@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::{env, process::exit};
 
+const HASHES_PER_ITERATION: u64 = 64;
 const BLOCKSIZE: u64 = 64;
 
 fn main() {
@@ -63,6 +64,8 @@ const GET_LEN: u8 = 3u8;
 fn receiver(bsync_name: &str, file: &str) {
     println!("receiver: {file} ");
 
+    let mut bsync = BlockFile::new(file, BLOCKSIZE, true).expect("Could not start receiver");
+
     let mut child = if file.contains(":") {
         // Split.remainder is still experimental
         let pos = file.find(":").unwrap();
@@ -87,16 +90,102 @@ fn receiver(bsync_name: &str, file: &str) {
             .expect("failed to start transmitter")
     };
 
-    let mut stdin = child
+    let mut child_stdin = child
         .stdin
         .take()
         .expect("could not connect to stdin of child");
-    let mut stdout = child
+    let mut child_stdout = child
         .stdout
         .take()
-        .expect("could not conenct to stdout of child");
+        .expect("could not connect to stdout of child");
 
-    let mut bsync = BlockFile::new(file, BLOCKSIZE, true).expect("Could not start receiver");
+    let local_len: u64 = bsync.get_len().expect("could not get local length");
+
+    child_stdin
+        .write(&[GET_LEN, 0u8, 0u8, 0u8, 0u8])
+        .expect("could not write to remote process");
+    child_stdin
+        .flush()
+        .expect("could not flush stdin of remote process");
+
+    let remote_len: u64 = {
+        let mut buf = [0u8; 8];
+        read_exact(&mut child_stdout, &mut buf[0..9]).expect("could not read remote length");
+        u64::from_be_bytes(buf)
+    };
+    println!("local len {local_len} remote len: {remote_len}");
+
+    if local_len > remote_len {
+        bsync
+            .set_len(remote_len)
+            .expect("could not set length of local file");
+    }
+
+    let num_blocks = remote_len / BLOCKSIZE + ((remote_len % BLOCKSIZE != 0) as u64);
+
+    let mut blocks_to_be_read: Vec<u64> = Vec::new();
+    let mut block_buf = [0u8; 8usize + BLOCKSIZE as usize];
+
+    let mut hashes_per_iteration: u64 = HASHES_PER_ITERATION;
+
+    // prepare get block command
+    let mut get_block_cmd = [0u8; 9];
+    get_block_cmd[0] = GET_BLOCK;
+
+    let mut local_blockhash = [0u8; 32];
+    let mut remote_blockhash = [0u8; 32];
+
+    let mut current_block: u64 = 0u64;
+    while current_block < num_blocks {
+        blocks_to_be_read.clear();
+
+        if num_blocks - current_block < hashes_per_iteration {
+            hashes_per_iteration = num_blocks - current_block;
+        }
+
+        child_stdin.write(&[GET_BLOCKHASH]).unwrap();
+        child_stdin
+            .write(&u64::to_be_bytes(hashes_per_iteration))
+            .expect("failed writing get blockhash command");
+        child_stdin.flush().unwrap();
+
+        for _ in 0..hashes_per_iteration {
+            read_exact(&mut child_stdout, &mut remote_blockhash)
+                .expect("failed reading remote blockhash");
+            bsync.next_blockhash(&mut local_blockhash);
+
+            if local_blockhash != remote_blockhash {
+                blocks_to_be_read.push(current_block);
+            }
+
+            current_block += 1;
+        }
+
+        for block in &blocks_to_be_read {
+            child_stdin.write(&[GET_BLOCK]).unwrap();
+            child_stdin.write(&u64::to_be_bytes(*block)).unwrap();
+            child_stdin.flush().unwrap();
+            read_exact(&mut child_stdout, &mut block_buf).expect("cannot read block");
+            let bufsize = {
+                let (ib, _) = block_buf.split_at(8);
+                u64::from_be_bytes(ib.try_into().unwrap())
+            };
+            let written = bsync
+                .write_block(*block, &block_buf[8..(8 + bufsize) as usize])
+                .expect("could not write block") as u64;
+            if written != bufsize {
+                eprintln!("written != bufsize: {written} != {bufsize}");
+            }
+        }
+    }
+}
+
+fn read_exact<A: Read>(r: &mut A, buf: &mut [u8]) -> std::io::Result<()> {
+    let mut read_bytes = 0;
+    while read_bytes != buf.len() {
+        read_bytes += r.read(&mut buf[read_bytes..])?;
+    }
+    Ok(())
 }
 
 fn transmitter(file: &str) {

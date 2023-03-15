@@ -1,4 +1,3 @@
-use base16ct::lower::encode;
 use generic_array::GenericArray;
 use sha3::{Digest, Sha3_256};
 use std::io::prelude::*;
@@ -42,7 +41,10 @@ impl BlockFile {
 
     pub fn write_block(&mut self, block: u64, buf: &[u8]) -> std::io::Result<usize> {
         self.reader.seek(SeekFrom::Start(block * self.blocksize))?;
-        self.reader.write(buf)
+        let res = self.reader.write(buf);
+        self.reader
+            .seek(SeekFrom::Start(self.blocksize * self.next_block))?;
+        res
     }
 
     pub fn get_hash_size() -> usize {
