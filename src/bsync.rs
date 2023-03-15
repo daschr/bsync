@@ -67,7 +67,6 @@ impl BlockFile {
                     hasher.update(&self.buf[0..s]);
                     hasher.finalize_into(GenericArray::from_mut_slice(hashbuf));
                     self.next_block += 1;
-                    //                    encode(&hash, hashbuf).expect("could not encode hash!");
                     Some(hashbuf)
                 }
             }
