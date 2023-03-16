@@ -1,13 +1,14 @@
 mod bsync;
 
+use base16ct::lower::encode_str;
 use bsync::BlockFile;
 use std::io;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::{env, process::exit};
 
-const HASHES_PER_ITERATION: u64 = 64;
-const BLOCKSIZE: u64 = 64;
+const HASHES_PER_ITERATION: u64 = 1024;
+const BLOCKSIZE: u64 = 1024 * 1024;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -17,17 +18,9 @@ fn main() {
     }
 
     match args[1].as_str() {
-        "-rx" | "-c" => receiver(args[0].as_str(), args[2].as_str()),
+        "-rx" | "-c" => receiver(args[0].as_str(), args[2].as_str(), args[3].as_str()),
         "-tx" | "-s" => transmitter(args[2].as_str()),
         _ => help(args[0].as_str()),
-    }
-
-    let mut reader = BlockFile::new(&args[1], 1024, false).expect("could not create reader");
-
-    let mut hashbuf: Vec<u8> = vec![0u8; 64];
-
-    while matches!(reader.next_blockhash(&mut hashbuf), Some(_)) {
-        println!("{}", core::str::from_utf8(&hashbuf).unwrap());
     }
 }
 
@@ -61,16 +54,16 @@ const GET_BLOCKHASH: u8 = 1u8;
 const GET_BLOCK: u8 = 2u8;
 const GET_LEN: u8 = 3u8;
 
-fn receiver(bsync_name: &str, file: &str) {
-    println!("receiver: {file} ");
+fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
+    println!("receiver: {local_file} {remote_file}");
 
-    let mut bsync = BlockFile::new(file, BLOCKSIZE, true).expect("Could not start receiver");
+    let mut bsync = BlockFile::new(local_file, BLOCKSIZE, true).expect("Could not start receiver");
 
-    let mut child = if file.contains(":") {
+    let mut child = if remote_file.contains(":") {
         // Split.remainder is still experimental
-        let pos = file.find(":").unwrap();
-        let host: &str = &file[0..pos];
-        let rest: &str = &file[(pos + 1)..];
+        let pos = remote_file.find(":").unwrap();
+        let host: &str = &remote_file[0..pos];
+        let rest: &str = &remote_file[(pos + 1)..];
         Command::new("ssh")
             .arg(host)
             .arg(bsync_name)
@@ -83,7 +76,7 @@ fn receiver(bsync_name: &str, file: &str) {
     } else {
         Command::new(bsync_name)
             .arg("-tx")
-            .arg(file)
+            .arg(remote_file)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -101,8 +94,10 @@ fn receiver(bsync_name: &str, file: &str) {
 
     let local_len: u64 = bsync.get_len().expect("could not get local length");
 
+    eprintln!("local_len: {local_len}");
+
     child_stdin
-        .write(&[GET_LEN, 0u8, 0u8, 0u8, 0u8])
+        .write(&[GET_LEN, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8])
         .expect("could not write to remote process");
     child_stdin
         .flush()
@@ -110,9 +105,10 @@ fn receiver(bsync_name: &str, file: &str) {
 
     let remote_len: u64 = {
         let mut buf = [0u8; 8];
-        read_exact(&mut child_stdout, &mut buf[0..9]).expect("could not read remote length");
+        read_exact(&mut child_stdout, &mut buf[0..8]).expect("could not read remote length");
         u64::from_be_bytes(buf)
     };
+
     println!("local len {local_len} remote len: {remote_len}");
 
     if local_len > remote_len {
@@ -124,12 +120,14 @@ fn receiver(bsync_name: &str, file: &str) {
     let num_blocks = remote_len / BLOCKSIZE + ((remote_len % BLOCKSIZE != 0) as u64);
 
     let mut blocks_to_be_read: Vec<u64> = Vec::new();
-    let mut block_buf = [0u8; 8usize + BLOCKSIZE as usize];
+    let mut block_buf = vec![0u8; 8usize + BLOCKSIZE as usize]; // [0u8; 8usize + BLOCKSIZE as usize];
 
     let mut hashes_per_iteration: u64 = HASHES_PER_ITERATION;
 
     let mut local_blockhash = [0u8; 32];
     let mut remote_blockhash = [0u8; 32];
+
+    let mut blockhash_str = [0u8; 64];
 
     let mut current_block: u64 = 0u64;
     while current_block < num_blocks {
@@ -149,7 +147,18 @@ fn receiver(bsync_name: &str, file: &str) {
             read_exact(&mut child_stdout, &mut remote_blockhash)
                 .expect("failed reading remote blockhash");
             bsync.next_blockhash(&mut local_blockhash);
+            /*
+                        eprint!("block {current_block} ");
+                        eprint!(
+                            "local: {} ",
+                            encode_str(&local_blockhash, &mut blockhash_str).unwrap()
+                        );
 
+                        eprintln!(
+                            "remote: {}",
+                            encode_str(&remote_blockhash, &mut blockhash_str).unwrap()
+                        );
+            */
             if local_blockhash != remote_blockhash {
                 blocks_to_be_read.push(current_block);
             }
@@ -158,22 +167,30 @@ fn receiver(bsync_name: &str, file: &str) {
         }
 
         for block in &blocks_to_be_read {
+            //            eprintln!("updating block {block}");
             child_stdin.write(&[GET_BLOCK]).unwrap();
             child_stdin.write(&u64::to_be_bytes(*block)).unwrap();
             child_stdin.flush().unwrap();
-            read_exact(&mut child_stdout, &mut block_buf).expect("cannot read block");
+
+            read_exact(&mut child_stdout, &mut block_buf[0..8]).expect("cannot read blocksize");
             let bufsize = {
                 let (ib, _) = block_buf.split_at(8);
                 u64::from_be_bytes(ib.try_into().unwrap())
             };
+            read_exact(&mut child_stdout, &mut block_buf[8..(bufsize + 8) as usize])
+                .expect("cannot read block");
             let written = bsync
                 .write_block(*block, &block_buf[8..(8 + bufsize) as usize])
                 .expect("could not write block") as u64;
             if written != bufsize {
-                eprintln!("written != bufsize: {written} != {bufsize}");
+                panic!("written != bufsize: {written} != {bufsize}");
             }
         }
     }
+
+    eprintln!("killing child");
+    child.kill().expect("child already killed");
+    child.wait().ok();
 }
 
 fn read_exact<A: Read>(r: &mut A, buf: &mut [u8]) -> std::io::Result<()> {
@@ -192,7 +209,7 @@ fn transmitter(file: &str) {
 
     let mut command = [0u8; 9];
     let mut blockhash = [0u8; 32];
-    let mut block = [0u8; BLOCKSIZE as usize];
+    let mut block = vec![0u8; BLOCKSIZE as usize]; // [0u8; BLOCKSIZE as usize];
 
     loop {
         {

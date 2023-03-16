@@ -15,7 +15,7 @@ impl BlockFile {
     pub fn new(file: &str, blocksize: u64, writeable: bool) -> std::io::Result<Self> {
         let path = Path::new(file);
         let fd: File = if writeable {
-            OpenOptions::new().write(true).open(path)?
+            OpenOptions::new().write(true).read(true).open(path)?
         } else {
             File::open(path)?
         };
