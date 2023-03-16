@@ -147,18 +147,6 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
             read_exact(&mut child_stdout, &mut remote_blockhash)
                 .expect("failed reading remote blockhash");
             bsync.next_blockhash(&mut local_blockhash);
-            /*
-                        eprint!("block {current_block} ");
-                        eprint!(
-                            "local: {} ",
-                            encode_str(&local_blockhash, &mut blockhash_str).unwrap()
-                        );
-
-                        eprintln!(
-                            "remote: {}",
-                            encode_str(&remote_blockhash, &mut blockhash_str).unwrap()
-                        );
-            */
             if local_blockhash != remote_blockhash {
                 blocks_to_be_read.push(current_block);
             }
@@ -167,7 +155,6 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
         }
 
         for block in &blocks_to_be_read {
-            //            eprintln!("updating block {block}");
             child_stdin.write(&[GET_BLOCK]).unwrap();
             child_stdin.write(&u64::to_be_bytes(*block)).unwrap();
             child_stdin.flush().unwrap();
