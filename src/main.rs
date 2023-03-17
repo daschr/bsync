@@ -24,7 +24,7 @@ fn main() {
 }
 
 fn help(name: &str) {
-    eprintln!("Usage: {name} [-rx|-tx|-c|s] [file]");
+    eprintln!("Usage: {name} [-rx|-tx|-c|s] [local_file] [remote_file]");
     exit(1);
 }
 
@@ -96,7 +96,7 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
     eprintln!("local_len: {local_len}");
 
     child_stdin
-        .write(&[GET_LEN, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8])
+        .write_all(&[GET_LEN, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8])
         .expect("could not write to remote process");
     child_stdin
         .flush()
@@ -134,9 +134,9 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
             hashes_per_iteration = num_blocks - current_block;
         }
 
-        child_stdin.write(&[GET_BLOCKHASH]).unwrap();
+        child_stdin.write_all(&[GET_BLOCKHASH]).unwrap();
         child_stdin
-            .write(&u64::to_be_bytes(hashes_per_iteration))
+            .write_all(&u64::to_be_bytes(hashes_per_iteration))
             .expect("failed writing get blockhash command");
         child_stdin.flush().unwrap();
 
@@ -152,8 +152,8 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
         }
 
         for block in &blocks_to_be_read {
-            child_stdin.write(&[GET_BLOCK]).unwrap();
-            child_stdin.write(&u64::to_be_bytes(*block)).unwrap();
+            child_stdin.write_all(&[GET_BLOCK]).unwrap();
+            child_stdin.write_all(&u64::to_be_bytes(*block)).unwrap();
             child_stdin.flush().unwrap();
 
             read_exact(&mut child_stdout, &mut block_buf[0..8]).expect("cannot read blocksize");
@@ -212,7 +212,9 @@ fn transmitter(file: &str) {
 
                 for _ in 0..num_blocks {
                     if let Some(_) = bsync.next_blockhash(&mut blockhash) {
-                        stdout.write(&blockhash).expect("could not write blockhash");
+                        stdout
+                            .write_all(&blockhash)
+                            .expect("could not write blockhash");
                     }
                 }
             }
@@ -224,17 +226,17 @@ fn transmitter(file: &str) {
                     .get_block(blocknumber, &mut block)
                     .expect("could not read block");
                 stdout
-                    .write(&u64::to_be_bytes(blocksize as u64))
+                    .write_all(&u64::to_be_bytes(blocksize as u64))
                     .expect("could not write blocksize");
                 stdout
-                    .write(&block[0..blocksize])
+                    .write_all(&block[0..blocksize])
                     .expect("could not write block data");
             }
             GET_LEN => {
                 let length: u64 = bsync.get_len().expect("could not get length of file");
                 eprintln!("length: {length}");
                 stdout
-                    .write(&u64::to_be_bytes(length))
+                    .write_all(&u64::to_be_bytes(length))
                     .expect("could not write file length");
             }
             _ => {

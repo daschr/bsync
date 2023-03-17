@@ -41,10 +41,10 @@ impl BlockFile {
 
     pub fn write_block(&mut self, block: u64, buf: &[u8]) -> std::io::Result<usize> {
         self.reader.seek(SeekFrom::Start(block * self.blocksize))?;
-        let res = self.reader.write(buf);
+        self.reader.write_all(buf)?;
         self.reader
             .seek(SeekFrom::Start(self.blocksize * self.next_block))?;
-        res
+        Ok(buf.len())
     }
 
     #[allow(dead_code)]
