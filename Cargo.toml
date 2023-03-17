@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 sha3 = "0.10.6"
-base16ct = "0.2.0"
+#base16ct = "0.2.0"
 hex-literal = "0.3"
 generic-array = "0.14.6"
+
+[profile.release]
+strip = true
