@@ -47,14 +47,17 @@ impl BlockFile {
         res
     }
 
+    #[allow(dead_code)]
     pub fn get_hash_size() -> usize {
         Sha3_256::output_size()
     }
 
+    #[allow(dead_code)]
     pub fn get_next_block(&self) -> u64 {
         self.next_block
     }
 
+    #[allow(dead_code)]
     pub fn set_next_block(&mut self, next_block: u64) {
         self.next_block = next_block;
     }
@@ -79,6 +82,7 @@ impl BlockFile {
         }
     }
 
+    #[allow(dead_code)]
     pub fn seek(&mut self, block: u64) -> std::io::Result<()> {
         self.reader.seek(SeekFrom::Start(self.blocksize * block))?;
         self.next_block = block;

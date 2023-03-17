@@ -1,6 +1,5 @@
 mod bsync;
 
-use base16ct::lower::encode_str;
 use bsync::BlockFile;
 use std::io;
 use std::io::{Read, Write};
@@ -126,8 +125,6 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
 
     let mut local_blockhash = [0u8; 32];
     let mut remote_blockhash = [0u8; 32];
-
-    let mut blockhash_str = [0u8; 64];
 
     let mut current_block: u64 = 0u64;
     while current_block < num_blocks {
