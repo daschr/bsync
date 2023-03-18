@@ -4,6 +4,7 @@ use bsync::BlockFile;
 use std::io;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+use std::time::Instant;
 use std::{env, process::exit};
 
 const HASHES_PER_ITERATION: u64 = 1024;
@@ -119,7 +120,7 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
     let num_blocks = remote_len / BLOCKSIZE + ((remote_len % BLOCKSIZE != 0) as u64);
 
     let mut blocks_to_be_read: Vec<u64> = Vec::new();
-    let mut block_buf = vec![0u8; 8usize + BLOCKSIZE as usize]; // [0u8; 8usize + BLOCKSIZE as usize];
+    let mut block_buf = vec![0u8; 8usize + BLOCKSIZE as usize];
 
     let mut hashes_per_iteration: u64 = HASHES_PER_ITERATION;
 
@@ -128,6 +129,7 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
 
     let mut current_block: u64 = 0u64;
     while current_block < num_blocks {
+        let ts = Instant::now();
         blocks_to_be_read.clear();
 
         if num_blocks - current_block < hashes_per_iteration {
@@ -170,6 +172,11 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
                 panic!("written != bufsize: {written} != {bufsize}");
             }
         }
+        let elapsed = ts.elapsed();
+        println!(
+            "{} Blocks/s",
+            (hashes_per_iteration as f64 / elapsed.as_secs() as f64) as f64
+        );
     }
 
     eprintln!("killing child");
