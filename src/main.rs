@@ -125,8 +125,7 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
 
     let mut hashes_per_iteration: u64 = HASHES_PER_ITERATION;
 
-    let mut local_blockhash = [0u8; 32];
-    let mut remote_blockhash = [0u8; 32];
+    let mut remote_blockhash = [0u8; 8];
 
     let mut current_block: u64 = 0u64;
     while current_block < num_blocks {
@@ -146,8 +145,8 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
         for _ in 0..hashes_per_iteration {
             read_exact(&mut child_stdout, &mut remote_blockhash)
                 .expect("failed reading remote blockhash");
-            bsync.next_blockhash(&mut local_blockhash);
-            if local_blockhash != remote_blockhash {
+            let local_blockhash = bsync.next_blockhash().unwrap();
+            if local_blockhash != u64::from_be_bytes(remote_blockhash) {
                 blocks_to_be_read.push(current_block);
             }
 
@@ -203,7 +202,6 @@ fn transmitter(file: &str) {
     let mut stdout = io::stdout();
 
     let mut command = [0u8; 9];
-    let mut blockhash = [0u8; 32];
     let mut block = vec![0u8; BLOCKSIZE as usize]; // [0u8; BLOCKSIZE as usize];
 
     loop {
@@ -222,9 +220,9 @@ fn transmitter(file: &str) {
                 eprintln!("parsed num_blocks: {num_blocks}");
 
                 for _ in 0..num_blocks {
-                    if let Some(_) = bsync.next_blockhash(&mut blockhash) {
+                    if let Some(blockhash) = bsync.next_blockhash() {
                         stdout
-                            .write_all(&blockhash)
+                            .write_all(&u64::to_be_bytes(blockhash))
                             .expect("could not write blockhash");
                     }
                 }

@@ -1,8 +1,7 @@
-use generic_array::GenericArray;
-use sha3::{Digest, Sha3_256};
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::{fs::File, fs::OpenOptions, path::Path};
+use xxhash_rust::xxh3::xxh3_64;
 
 pub struct BlockFile {
     reader: File,
@@ -49,7 +48,7 @@ impl BlockFile {
 
     #[allow(dead_code)]
     pub fn get_hash_size() -> usize {
-        Sha3_256::output_size()
+        8
     }
 
     #[allow(dead_code)]
@@ -62,17 +61,15 @@ impl BlockFile {
         self.next_block = next_block;
     }
 
-    pub fn next_blockhash<'a>(&mut self, hashbuf: &'a mut [u8]) -> Option<&'a mut [u8]> {
+    pub fn next_blockhash<'a>(&mut self) -> Option<u64> {
         match self.reader.read(&mut self.buf) {
             Ok(s) => {
                 if s == 0 {
                     None
                 } else {
-                    let mut hasher = Sha3_256::new();
-                    hasher.update(&self.buf[0..s]);
-                    hasher.finalize_into(GenericArray::from_mut_slice(hashbuf));
+                    let hash = xxh3_64(&self.buf[0..s]);
                     self.next_block += 1;
-                    Some(hashbuf)
+                    Some(hash)
                 }
             }
             Err(e) => {
