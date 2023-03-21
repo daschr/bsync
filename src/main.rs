@@ -53,6 +53,7 @@ fn help(name: &str) {
 const GET_BLOCKHASH: u8 = 1u8;
 const GET_BLOCK: u8 = 2u8;
 const GET_LEN: u8 = 3u8;
+const QUIT: u8 = 4u8;
 
 fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
     println!("receiver: {local_file} {remote_file}");
@@ -179,8 +180,11 @@ fn receiver(bsync_name: &str, local_file: &str, remote_file: &str) {
         );
     }
 
-    eprintln!("killing child");
-    child.kill().expect("child already killed");
+    eprintln!("quitting child");
+    child_stdin
+        .write_all(&[QUIT, 0, 0, 0, 0, 0, 0, 0, 0])
+        .unwrap();
+    child_stdin.flush().unwrap();
     child.wait().ok();
 }
 
@@ -245,6 +249,9 @@ fn transmitter(file: &str) {
                 stdout
                     .write_all(&u64::to_be_bytes(length))
                     .expect("could not write file length");
+            }
+            QUIT => {
+                break;
             }
             _ => {
                 eprintln!("invalid command! {command:?}");
